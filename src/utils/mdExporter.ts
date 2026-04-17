@@ -17,10 +17,7 @@ function buildSessionTable(answers: QuestionAnswer[]): string {
 
   const rows = answers.map((a, i) => {
     const result = a.is_correct ? '✅' : '❌'
-    const q = a.question_text.length > 60 ? a.question_text.slice(0, 60) + '...' : a.question_text
-    const userAns = a.user_answer.length > 30 ? a.user_answer.slice(0, 30) + '...' : a.user_answer
-    const correctAns = a.correct_answer.length > 30 ? a.correct_answer.slice(0, 30) + '...' : a.correct_answer
-    return `| ${i + 1} | ${q} | ${userAns} | ${correctAns} | ${result} | ${formatTime(a.time_spent_seconds)} | ${difficultyBadge(a.difficulty)} ${a.difficulty} |`
+    return `| ${i + 1} | ${a.question_text} | ${a.user_answer} | ${a.correct_answer} | ${result} | ${formatTime(a.time_spent_seconds)} | ${difficultyBadge(a.difficulty)} ${a.difficulty} |`
   }).join('\n')
 
   return header + separator + rows
@@ -60,11 +57,24 @@ function buildFlaggedQuestions(answers: QuestionAnswer[]): string {
   if (flagged.length === 0) return '_None_'
 
   return flagged
-    .map((a, i) => `${i + 1}. **${a.question_text}**\n   - Your answer: ${a.user_answer}\n   - Correct: ${a.correct_answer}`)
+    .map((a, i) => `${i + 1}. **${a.question_text}**\n   - Your answer: ${a.user_answer}\n   - Correct: ${a.correct_answer}\n   - **Explanation**: ${a.explanation}`)
     .join('\n\n')
 }
 
-function buildSessionMarkdown(session: QuizSession): string {
+function buildDetailedReview(answers: QuestionAnswer[]): string {
+  return answers.map((a, i) => {
+    const status = a.is_correct ? '✅ CORRECT' : '❌ INCORRECT'
+    return `### ${i + 1}. ${a.question_text}
+- **Status**: ${status}
+- **Your Answer**: ${a.user_answer}
+- **Correct Answer**: ${a.correct_answer}
+- **Explanation**: ${a.explanation}
+- **Difficulty**: ${a.difficulty.toUpperCase()}
+- **Tags**: ${a.tags.join(', ')}`
+  }).join('\n\n')
+}
+
+export function buildSessionMarkdown(session: QuizSession): string {
   const correctCount = session.answers.filter(a => a.is_correct).length
   const accuracy = session.total_questions > 0
     ? Math.round((correctCount / session.total_questions) * 100)
@@ -97,6 +107,10 @@ ${buildTagBreakdown(session.answers)}
 ### Flagged for Review
 
 ${buildFlaggedQuestions(session.answers)}
+
+### Detailed Response Review
+
+${buildDetailedReview(session.answers)}
 
 ---
 `

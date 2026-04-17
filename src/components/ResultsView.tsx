@@ -122,7 +122,7 @@ export default function ResultsView({ session, onReset, autoExported }: ResultsV
           </button>
         </div>
         {autoExported && (
-          <p className="text-green-400 text-sm mt-3">✓ Cumulative MD file auto-downloaded</p>
+          <p className="text-green-400 text-sm mt-3">✓ Session report auto-downloaded</p>
         )}
         {showExported && !autoExported && (
           <p className="text-green-400 text-sm mt-3">Exported successfully!</p>
@@ -159,19 +159,15 @@ export default function ResultsView({ session, onReset, autoExported }: ResultsV
       {tagBreakdown.length > 0 && (
         <div className="p-5 bg-gray-900 border border-gray-700 rounded-xl mb-4">
           <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">By Tag</h3>
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
             {tagBreakdown.map(t => (
-              <div key={t.tag} className="flex items-center justify-between">
-                <span className="text-sm text-gray-300">{t.tag}</span>
-                <div className="flex items-center gap-3 flex-1 mx-4">
-                  <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-indigo-500 rounded-full transition-all"
-                      style={{ width: `${(t.correct / t.total) * 100}%` }}
-                    />
-                  </div>
-                </div>
-                <span className="text-sm text-gray-300 w-16 text-right">{t.correct}/{t.total}</span>
+              <div key={t.tag} className="flex items-center justify-between py-1 border-b border-gray-800 last:border-0">
+                <span className="text-sm font-medium text-gray-300">
+                  {t.tag}
+                </span>
+                <span className="text-sm font-mono text-gray-400">
+                  {t.correct}/{t.total} ({Math.round((t.correct / t.total) * 100)}%)
+                </span>
               </div>
             ))}
           </div>

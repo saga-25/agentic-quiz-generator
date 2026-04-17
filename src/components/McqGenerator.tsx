@@ -86,12 +86,14 @@ Difficulty breakdown (STRICT — follow exactly):
 - ${distribution.hard} HARD questions: Test synthesis, edge cases, and expert-level reasoning. Require deep domain knowledge, multi-step logic, or distinguishing between subtly different concepts that are commonly confused.
 
 Question Design Principles:
-1. PLAUSIBLE DISTRACTORS — Every wrong option must represent a real misconception, a common error, or a closely related but incorrect concept. Never use obviously absurd or throwaway options.
+1. HIGH-COMPETITION DISTRACTORS — Every wrong option must represent a real misconception, a common error, or a closely related but incorrect concept. Avoid "None of the above" or obviously absurd options. The goal is to make the options "confusing" to anyone who doesn't have a truly firm grasp of the concept.
 2. CLEAR STEM — Each question stem must be unambiguous and self-contained. Avoid double negatives and trick wording.
-3. BALANCED OPTION LENGTH — All four options should be similar in length and grammatical structure. The correct answer should never be conspicuously longer or more detailed.
-4. ONE BEST ANSWER — There must be exactly one defensibly correct answer. If a topic is debatable, frame the question to make the intended answer unambiguous (e.g., "According to standard theory...").
-5. DIVERSE COGNITIVE LEVELS — Within each difficulty tier, mix question types: definition, comparison, cause-effect, scenario-based, "which of the following is NOT", ordering/sequencing, and best-practice questions.
-6. RICH EXPLANATIONS — Each explanation must: (a) state why the correct answer is right with supporting reasoning, AND (b) briefly explain why each distractor is wrong.
+3. BALANCED OPTION LENGTH — All four options should be similar in length and grammatical structure.
+4. ONE BEST ANSWER — There must be exactly one defensibly correct answer.
+5. RICH & DESCRIPTIVE EXPLANATIONS — Each explanation must be easy to understand yet comprehensive. 
+   - State why the correct answer is right with clear, punchy logic. 
+   - Explain exactly why each distractor is wrong, addressing the specific misconception it represents.
+   - Use a mentor-like, encouraging tone.
 
 Return ONLY a valid JSON array (no surrounding text) with this structure:
 [
@@ -123,10 +125,10 @@ PROJECT DETAILS:
 "${projectDetails}"
 
 Guidelines for Interview-Ready Questions:
-1. FOCUS ON CONCEPTUAL MASTERY: Do not ask about trivial syntax unless it's critical to the architecture. Ask about the "Why" and "How" of the technologies mentioned (e.g., why choose LangGraph over a simple chain, how MCP solves integration hurdles, the implications of PII redaction in RAG).
-2. CHALLENGE THE CANDIDATE: Questions should simulate a high-stakes technical interview. They should probe for understanding of trade-offs, scalability, security, and lifecycle management (LLMOps).
-3. PEDAGOGICAL EXPLANATIONS: Explanations must be descriptive and professional. 
-   - Start by clearly stating the core architectural or conceptual principle.
+1. FOCUS ON CONCEPTUAL MASTERY: Do not ask about trivial syntax unless it's critical to the architecture. Ask about the "Why" and "How" of the technologies mentioned.
+2. HIGH-COMPETITION DISTRACTORS: Options should be subtly different and "confusing" to test genuine expertise. Distractors should represent real-world architectural mistakes or common sub-optimal patterns.
+3. DESCRIPTIVE & EASY-TO-UNDERSTAND EXPLANATIONS: Explanations must be professional, descriptive, and pedagogical.
+   - Start with a clear principal explanation.
    - Use a "mentor's voice" to explain the logic.
    - Provide a "Why not?" section for distractors, explaining the specific trade-off or misconception they represent.
 
@@ -237,14 +239,13 @@ async function callGoogle(topic: string, distribution: DifficultyDistribution, c
 }
 
 async function callOllama(topic: string, distribution: DifficultyDistribution, config: MCQCreatorConfig, mode: QuizMode): Promise<string> {
-  const model = config.model || 'gemma4:31b'
-
+  const model = config.model || 'gemma4:31b-cloud'
   const baseUrl = config.ollamaUrl.replace(/\/+$/, '')
-
-  // Use Vite proxy to avoid CORS when hitting Ollama Cloud from browser
   const isCloud = baseUrl.includes('ollama.com')
+
+  // Ollama Cloud requires OpenAI-compatible endpoint, Local use native
   const url = isCloud
-    ? '/ollama-cloud-api/api/chat'
+    ? '/ollama-cloud-api/v1/chat/completions'
     : `${baseUrl}/api/chat`
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -252,40 +253,36 @@ async function callOllama(topic: string, distribution: DifficultyDistribution, c
     headers['Authorization'] = `Bearer ${config.apiKey}`
   }
 
-  // Use the native Ollama `/api/chat` endpoint and format
-  const requestBody = {
-    model,
-    messages: [{ role: 'user', content: getPrompt(mode, topic, distribution) }],
-    stream: false,
-    format: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          question_id: { type: 'string' },
-          question_text: { type: 'string' },
-          options: { type: 'array', items: { type: 'string' } },
-          correct_answer: { type: 'integer' },
-          difficulty: { type: 'string', enum: ['easy', 'medium', 'hard'] },
-          tags: { type: 'array', items: { type: 'string' } },
-          explanation: { type: 'string' }
-        },
-        required: ['question_text', 'options', 'correct_answer', 'explanation']
-      }
-    },
-    options: {
+  let requestBody: any
+  if (isCloud) {
+    // OpenAI-compatible format for Ollama Cloud
+    requestBody = {
+      model,
+      messages: [{ role: 'user', content: getPrompt(mode, topic, distribution) }],
       temperature: 0.7,
-      num_predict: 8192, // Ensure enough tokens for 30-50 questions
-      num_ctx: 16384     // Increase context window for large prompt + large output
+      response_format: { type: 'json_object' }
+    }
+  } else {
+    // Native Ollama format for Local
+    requestBody = {
+      model,
+      messages: [{ role: 'user', content: getPrompt(mode, topic, distribution) }],
+      stream: false,
+      format: 'json', // Use simple "json" string for better local compatibility
+      options: {
+        temperature: 0.7,
+        num_predict: 8192,
+        num_ctx: 16384
+      }
     }
   }
 
   console.log('[Ollama] Fetching:', url)
   console.log('[Ollama] Model:', model)
+  console.log('[Ollama] Mode:', isCloud ? 'Cloud (OpenAI-Compatible)' : 'Local (Native)')
 
   let response: Response
   try {
-    // Increase client-side timeout to 10 minutes for large generations
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 600000)
 
@@ -304,8 +301,8 @@ async function callOllama(topic: string, distribution: DifficultyDistribution, c
       `Error: ${message}\n\n` +
       `Check:\n` +
       `1. Your API key is valid and set in settings (⚙ icon)\n` +
-      `2. The model "${model}" is available in your Ollama Cloud account\n` +
-      `3. The URL "${config.ollamaUrl}" is correct (should be https://ollama.com for cloud)`
+      `2. The model "${model}" is available in your Ollama account\n` +
+      `3. The URL "${config.ollamaUrl}" is correct`
     )
   }
 
@@ -317,9 +314,11 @@ async function callOllama(topic: string, distribution: DifficultyDistribution, c
   }
 
   const data = await response.json()
-  console.log('[Ollama] Response keys:', Object.keys(data))
-
-  let content: string | undefined = data.message?.content
+  
+  // Handle both OpenAI and Native Ollama response formats
+  const content = isCloud 
+    ? data.choices?.[0]?.message?.content 
+    : data.message?.content
 
   if (!content) {
     throw new Error(`Unexpected Ollama response format: ${JSON.stringify(data).slice(0, 300)}`)

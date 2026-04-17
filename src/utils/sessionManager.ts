@@ -1,5 +1,5 @@
 import { QuizSession, QuizState, QuestionAnswer, MCQQuestion } from '../types'
-import { buildAllSessionsMarkdown, downloadMarkdown } from './mdExporter'
+import { buildAllSessionsMarkdown, downloadMarkdown, buildSessionMarkdown } from './mdExporter'
 
 const QUIZ_STATE_KEY = 'mcq_quiz_state'
 const SESSIONS_KEY = 'mcq_sessions'
@@ -45,10 +45,16 @@ export function finalizeSession(state: QuizState): QuizSession {
   saveSession(session)
   clearQuizState()
 
-  // Auto-download cumulative MD file after every session
-  autoDownloadAllSessions()
+  // Automatically download a SEPARATE report for this specific session
+  downloadSessionReport(session)
 
   return session
+}
+
+export function downloadSessionReport(session: QuizSession): void {
+  const md = buildSessionMarkdown(session)
+  const timestamp = new Date(session.started_at).toISOString().replace(/[:.]/g, '-')
+  downloadMarkdown(md, `session-report-${timestamp}.md`)
 }
 
 export function autoDownloadAllSessions(): void {
