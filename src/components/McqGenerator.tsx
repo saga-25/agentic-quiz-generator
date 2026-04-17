@@ -1,6 +1,6 @@
 import { MCQQuestion, Difficulty, DifficultyDistribution, QuizMode } from '../types'
 
-interface MCQCreatorConfig {
+export interface MCQCreatorConfig {
   provider: string
   apiKey: string
   model: string
@@ -238,14 +238,15 @@ async function callGoogle(topic: string, distribution: DifficultyDistribution, c
   return data.candidates[0].content.parts[0].text
 }
 
-async function callOllama(topic: string, distribution: DifficultyDistribution, config: MCQCreatorConfig, mode: QuizMode): Promise<string> {
+export async function callOllama(topic: string, distribution: DifficultyDistribution, config: MCQCreatorConfig, mode: QuizMode): Promise<string> {
   const model = config.model || 'gemma4:31b-cloud'
+
   const baseUrl = config.ollamaUrl.replace(/\/+$/, '')
-  const isCloud = baseUrl.includes('ollama.com')
 
   // Ollama Cloud requires OpenAI-compatible endpoint, Local use native
+  const isCloud = baseUrl.includes('ollama.com')
   const url = isCloud
-    ? '/ollama-cloud-api/v1/chat/completions'
+    ? '/ollama-cloud-api/api/chat'
     : `${baseUrl}/api/chat`
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -253,36 +254,24 @@ async function callOllama(topic: string, distribution: DifficultyDistribution, c
     headers['Authorization'] = `Bearer ${config.apiKey}`
   }
 
-  let requestBody: any
-  if (isCloud) {
-    // OpenAI-compatible format for Ollama Cloud
-    requestBody = {
-      model,
-      messages: [{ role: 'user', content: getPrompt(mode, topic, distribution) }],
+  const requestBody = {
+    model,
+    messages: [{ role: 'user', content: getPrompt(mode, topic, distribution) }],
+    stream: false,
+    format: 'json',
+    options: {
       temperature: 0.7,
-      response_format: { type: 'json_object' }
-    }
-  } else {
-    // Native Ollama format for Local
-    requestBody = {
-      model,
-      messages: [{ role: 'user', content: getPrompt(mode, topic, distribution) }],
-      stream: false,
-      format: 'json', // Use simple "json" string for better local compatibility
-      options: {
-        temperature: 0.7,
-        num_predict: 8192,
-        num_ctx: 16384
-      }
+      num_predict: 8192,
+      num_ctx: 16384
     }
   }
 
-  console.log('[Ollama] Fetching:', url)
+  console.log(`[Ollama] Fetching (${isCloud ? 'Cloud' : 'Local'}):`, url)
   console.log('[Ollama] Model:', model)
-  console.log('[Ollama] Mode:', isCloud ? 'Cloud (OpenAI-Compatible)' : 'Local (Native)')
 
   let response: Response
   try {
+    // Increase client-side timeout to 10 minutes for large generations
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 600000)
 
@@ -314,11 +303,9 @@ async function callOllama(topic: string, distribution: DifficultyDistribution, c
   }
 
   const data = await response.json()
-  
-  // Handle both OpenAI and Native Ollama response formats
-  const content = isCloud 
-    ? data.choices?.[0]?.message?.content 
-    : data.message?.content
+  console.log('[Ollama] Response data:', data)
+
+  const content = data.message?.content
 
   if (!content) {
     throw new Error(`Unexpected Ollama response format: ${JSON.stringify(data).slice(0, 300)}`)
