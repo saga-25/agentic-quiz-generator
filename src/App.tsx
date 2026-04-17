@@ -12,6 +12,7 @@ const App: React.FC = () => {
   const [view, setView] = useState<AppView>('home')
   const [questions, setQuestions] = useState<MCQQuestion[]>([])
   const [topic, setTopic] = useState('')
+  const [mode, setMode] = useState<QuizMode>('topic')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sessionResult, setSessionResult] = useState<QuizSession | null>(null)
@@ -28,14 +29,15 @@ const App: React.FC = () => {
     }
   }, [])
 
-  const handleGenerate = async (newTopic: string, _count: number, distribution: DifficultyDistribution) => {
+  const handleGenerate = async (newTopic: string, _count: number, distribution: DifficultyDistribution, mode: QuizMode) => {
     setIsLoading(true)
     setError(null)
     setTopic(newTopic)
 
     try {
-      const generated = await generateMCQs(newTopic, distribution)
+      const generated = await generateMCQs(newTopic, distribution, mode)
       setQuestions(generated)
+      setMode(mode)
       setView('quiz')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate questions')
@@ -80,6 +82,7 @@ const App: React.FC = () => {
           <QuizView
             questions={questions}
             topic={topic}
+            mode={resumeState?.mode || mode}
             initialState={resumeState || undefined}
             onFinish={handleFinish}
           />

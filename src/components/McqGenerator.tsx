@@ -1,4 +1,4 @@
-import { MCQQuestion, Difficulty, DifficultyDistribution } from '../types'
+import { MCQQuestion, Difficulty, DifficultyDistribution, QuizMode } from '../types'
 
 interface MCQCreatorConfig {
   provider: string
@@ -7,30 +7,73 @@ interface MCQCreatorConfig {
   ollamaUrl: string
 }
 
-function parseMCQResponse(text: string): MCQQuestion[] {
-  const jsonMatch = text.match(/\[[\s\S]*\]/)
-  if (!jsonMatch) return []
+export function parseMCQResponse(text: string): MCQQuestion[] {
+  // Strategy 1: Find everything between the FIRST [ and the LAST ]
+  // but if that fails to parse, try to find the FIRST [ that is followed by {
+  // which is a better indicator of our question array start.
+  
+  const extractAndParse = (input: string): MCQQuestion[] => {
+    try {
+      const parsed = JSON.parse(input)
+      let candidate: any = null
 
-  try {
-    const parsed = JSON.parse(jsonMatch[0])
-    if (!Array.isArray(parsed)) return []
+      if (Array.isArray(parsed)) {
+        candidate = parsed
+      } else if (typeof parsed === 'object' && parsed !== null) {
+        // Look for any array property if it's an object (Strategy 2)
+        const arrays = Object.values(parsed).filter(v => Array.isArray(v))
+        if (arrays.length > 0) {
+          // Take the largest array (likely the questions)
+          candidate = arrays.sort((a: any, b: any) => b.length - a.length)[0]
+        }
+      }
 
-    const validDifficulties: Difficulty[] = ['easy', 'medium', 'hard']
+      if (!Array.isArray(candidate)) return []
 
-    return parsed
-      .filter((q: any) => q.question_text && q.options && q.correct_answer !== undefined)
-      .map((q: any, i: number) => ({
-        question_id: q.question_id || `q-${String(i + 1).padStart(3, '0')}`,
-        question_text: q.question_text,
-        options: Array.isArray(q.options) ? q.options : [],
-        correct_answer: typeof q.correct_answer === 'number' ? q.correct_answer : 0,
-        difficulty: validDifficulties.includes(q.difficulty) ? q.difficulty : 'medium',
-        tags: Array.isArray(q.tags) ? q.tags : [],
-        explanation: q.explanation || ''
-      }))
-  } catch {
-    return []
+      const validDifficulties: Difficulty[] = ['easy', 'medium', 'hard']
+
+      return candidate
+        .filter((q: any) => q && typeof q === 'object' && q.question_text && q.options)
+        .map((q: any, i: number) => ({
+          question_id: q.question_id || `q-${String(i + 1).padStart(3, '0')}`,
+          question_text: q.question_text,
+          options: Array.isArray(q.options) ? q.options : [],
+          correct_answer: typeof q.correct_answer === 'number' ? q.correct_answer : 0,
+          difficulty: validDifficulties.includes(q.difficulty) ? q.difficulty : 'medium',
+          tags: Array.isArray(q.tags) ? q.tags : [],
+          explanation: q.explanation || ''
+        }))
+    } catch {
+      return []
+    }
   }
+
+  // Try parsing the whole text first (it might be clean JSON)
+  const firstTry = extractAndParse(text)
+  if (firstTry.length > 0) return firstTry
+
+  // Try finding the array start specifically with [{
+  const arrayWithObjectMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/)
+  if (arrayWithObjectMatch) {
+    const secondTry = extractAndParse(arrayWithObjectMatch[0])
+    if (secondTry.length > 0) return secondTry
+  }
+
+  // Fallback to the original greedy match
+  const greedyMatch = text.match(/\[[\s\S]*\]/)
+  if (greedyMatch) {
+    const thirdTry = extractAndParse(greedyMatch[0])
+    if (thirdTry.length > 0) return thirdTry
+  }
+
+  // Final fallback: try finding any object if it's wrapped
+  const objectMatch = text.match(/\{[\s\S]*\}/)
+  if (objectMatch) {
+    const fourthTry = extractAndParse(objectMatch[0])
+    if (fourthTry.length > 0) return fourthTry
+  }
+
+  return []
 }
 
 const SYSTEM_PROMPT = (topic: string, distribution: DifficultyDistribution) => {
@@ -72,7 +115,55 @@ Field rules:
 - Do NOT include any text before or after the JSON array`
 }
 
-async function callOpenAI(topic: string, distribution: DifficultyDistribution, config: MCQCreatorConfig): Promise<string> {
+const INTERVIEWER_SYSTEM_PROMPT = (projectDetails: string, distribution: DifficultyDistribution) => {
+  const total = distribution.easy + distribution.medium + distribution.hard
+  return `You are a world-class senior technical interviewer and specialized assessment designer. Your goal is to create ${total} conceptual multiple-choice questions that an interviewer would ask to test a candidate's deep mastery of the following project:
+
+PROJECT DETAILS:
+"${projectDetails}"
+
+Guidelines for Interview-Ready Questions:
+1. FOCUS ON CONCEPTUAL MASTERY: Do not ask about trivial syntax unless it's critical to the architecture. Ask about the "Why" and "How" of the technologies mentioned (e.g., why choose LangGraph over a simple chain, how MCP solves integration hurdles, the implications of PII redaction in RAG).
+2. CHALLENGE THE CANDIDATE: Questions should simulate a high-stakes technical interview. They should probe for understanding of trade-offs, scalability, security, and lifecycle management (LLMOps).
+3. PEDAGOGICAL EXPLANATIONS: Explanations must be descriptive and professional. 
+   - Start by clearly stating the core architectural or conceptual principle.
+   - Use a "mentor's voice" to explain the logic.
+   - Provide a "Why not?" section for distractors, explaining the specific trade-off or misconception they represent.
+
+Difficulty breakdown (STRICT — follow exactly):
+- ${distribution.easy} EASY (Conceptual Foundations): Basic definitions of tools used, understanding the primary goals, and straightforward application of mentioned principles.
+- ${distribution.medium} MEDIUM (Analytical Depth): Questions about trade-offs, comparison of alternative approaches, and standard production challenges.
+- ${distribution.hard} HARD (Architectural Synthesis): Synthesis of multiple concepts, complex edge cases (e.g., hallucination mitigation in multi-agent systems, PII leaks), and advanced troubleshooting in production environments.
+
+Return ONLY a valid JSON array with this structure:
+[
+  {
+    "question_id": "q-001",
+    "question_text": "A sophisticated, scenario-based interview question?",
+    "options": ["Plausible but sub-optimal approach", "The architecturally sound correct answer", "Common industry misconception", "Alternative tool that doesn't fit the context"],
+    "correct_answer": 1,
+    "difficulty": "medium",
+    "tags": ["architecture", "security", "scalability", "llmops"],
+    "explanation": "Start with the 'What': [Principal explanation]. Then the 'Why': [Pedagogical reasoning]. Finally, the 'Contrast': [Why distractors are less optimal or represent specific risks]."
+  }
+]
+
+Field rules:
+- question_id: sequential "q-001", "q-002", etc.
+- correct_answer: 0-based index. Randomize the position.
+- difficulty: first ${distribution.easy} are "easy", next ${distribution.medium} are "medium", last ${distribution.hard} are "hard"
+- tags: 2-4 lowercase hyphenated tags related to interviewing (e.g., 'system-design', 'llm-security')
+- Do NOT include any text before or after the JSON array`
+}
+
+function getPrompt(mode: QuizMode, topic: string, distribution: DifficultyDistribution): string {
+  return mode === 'interviewer'
+    ? INTERVIEWER_SYSTEM_PROMPT(topic, distribution)
+    : SYSTEM_PROMPT(topic, distribution)
+}
+
+
+async function callOpenAI(topic: string, distribution: DifficultyDistribution, config: MCQCreatorConfig, mode: QuizMode): Promise<string> {
   const model = config.model || 'gpt-4o'
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -82,7 +173,7 @@ async function callOpenAI(topic: string, distribution: DifficultyDistribution, c
     },
     body: JSON.stringify({
       model,
-      messages: [{ role: 'system', content: SYSTEM_PROMPT(topic, distribution) }],
+      messages: [{ role: 'system', content: getPrompt(mode, topic, distribution) }],
       temperature: 0.7,
       response_format: { type: 'json_object' }
     })
@@ -97,7 +188,7 @@ async function callOpenAI(topic: string, distribution: DifficultyDistribution, c
   return data.choices[0].message.content
 }
 
-async function callAnthropic(topic: string, distribution: DifficultyDistribution, config: MCQCreatorConfig): Promise<string> {
+async function callAnthropic(topic: string, distribution: DifficultyDistribution, config: MCQCreatorConfig, mode: QuizMode): Promise<string> {
   const model = config.model || 'claude-sonnet-4-20250514'
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -110,7 +201,7 @@ async function callAnthropic(topic: string, distribution: DifficultyDistribution
     body: JSON.stringify({
       model,
       max_tokens: 4096,
-      messages: [{ role: 'user', content: SYSTEM_PROMPT(topic, distribution) }]
+      messages: [{ role: 'user', content: getPrompt(mode, topic, distribution) }]
     })
   })
 
@@ -123,7 +214,7 @@ async function callAnthropic(topic: string, distribution: DifficultyDistribution
   return data.content[0].text
 }
 
-async function callGoogle(topic: string, distribution: DifficultyDistribution, config: MCQCreatorConfig): Promise<string> {
+async function callGoogle(topic: string, distribution: DifficultyDistribution, config: MCQCreatorConfig, mode: QuizMode): Promise<string> {
   const model = config.model || 'gemini-2.0-flash'
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`
 
@@ -131,7 +222,7 @@ async function callGoogle(topic: string, distribution: DifficultyDistribution, c
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: SYSTEM_PROMPT(topic, distribution) }] }],
+      contents: [{ parts: [{ text: getPrompt(mode, topic, distribution) }] }],
       generationConfig: { temperature: 0.7, responseMimeType: 'application/json' }
     })
   })
@@ -145,7 +236,7 @@ async function callGoogle(topic: string, distribution: DifficultyDistribution, c
   return data.candidates[0].content.parts[0].text
 }
 
-async function callOllama(topic: string, distribution: DifficultyDistribution, config: MCQCreatorConfig): Promise<string> {
+async function callOllama(topic: string, distribution: DifficultyDistribution, config: MCQCreatorConfig, mode: QuizMode): Promise<string> {
   const model = config.model || 'gemma4:31b'
 
   const baseUrl = config.ollamaUrl.replace(/\/+$/, '')
@@ -164,7 +255,7 @@ async function callOllama(topic: string, distribution: DifficultyDistribution, c
   // Use the native Ollama `/api/chat` endpoint and format
   const requestBody = {
     model,
-    messages: [{ role: 'user', content: SYSTEM_PROMPT(topic, distribution) }],
+    messages: [{ role: 'user', content: getPrompt(mode, topic, distribution) }],
     stream: false,
     format: {
       type: 'array',
@@ -181,6 +272,11 @@ async function callOllama(topic: string, distribution: DifficultyDistribution, c
         },
         required: ['question_text', 'options', 'correct_answer', 'explanation']
       }
+    },
+    options: {
+      temperature: 0.7,
+      num_predict: 8192, // Ensure enough tokens for 30-50 questions
+      num_ctx: 16384     // Increase context window for large prompt + large output
     }
   }
 
@@ -189,13 +285,20 @@ async function callOllama(topic: string, distribution: DifficultyDistribution, c
 
   let response: Response
   try {
+    // Increase client-side timeout to 10 minutes for large generations
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 600000)
+
     response = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(requestBody),
+      signal: controller.signal
     })
+    clearTimeout(timeoutId)
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
+    const isTimeout = err instanceof Error && err.name === 'AbortError'
+    const message = isTimeout ? 'Request timed out (took over 10 minutes)' : (err instanceof Error ? err.message : 'Unknown error')
     throw new Error(
       `Cannot reach Ollama at ${url}.\n\n` +
       `Error: ${message}\n\n` +
@@ -227,16 +330,17 @@ async function callOllama(topic: string, distribution: DifficultyDistribution, c
 
 export async function generateMCQs(
   topic: string,
-  distribution: DifficultyDistribution
+  distribution: DifficultyDistribution,
+  mode: QuizMode = 'topic'
 ): Promise<MCQQuestion[]> {
   const provider = localStorage.getItem('mcq_provider') || 'ollama'
   const apiKey = localStorage.getItem('mcq_api_key') || ''
-  let model = localStorage.getItem('mcq_api_model') || 'gemma4:31b'
+  let model = localStorage.getItem('mcq_api_model') || 'gemma4:31b-cloud'
   let ollamaUrl = localStorage.getItem('mcq_ollama_url') || 'https://ollama.com'
 
   // Migration: Fix old defaults in localStorage
-  if (model === 'gpt-oss:120b-cloud') {
-    model = 'gemma4:31b'
+  if (model === 'gpt-oss:120b-cloud' || model === 'gemma4:31b') {
+    model = 'gemma4:31b-cloud'
     localStorage.setItem('mcq_api_model', model)
   }
 
@@ -250,10 +354,10 @@ export async function generateMCQs(
 
   let response: string
   switch (provider) {
-    case 'openai': response = await callOpenAI(topic, distribution, config); break
-    case 'anthropic': response = await callAnthropic(topic, distribution, config); break
-    case 'google': response = await callGoogle(topic, distribution, config); break
-    case 'ollama': response = await callOllama(topic, distribution, config); break
+    case 'openai': response = await callOpenAI(topic, distribution, config, mode); break
+    case 'anthropic': response = await callAnthropic(topic, distribution, config, mode); break
+    case 'google': response = await callGoogle(topic, distribution, config, mode); break
+    case 'ollama': response = await callOllama(topic, distribution, config, mode); break
     default: throw new Error(`Unknown provider: ${provider}`)
   }
 

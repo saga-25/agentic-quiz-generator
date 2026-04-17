@@ -6,16 +6,18 @@ import { recordAnswer, toggleFlag, saveQuizState } from '../utils/sessionManager
 interface QuizViewProps {
   questions: MCQQuestion[]
   topic: string
+  mode: QuizMode
   initialState?: QuizState
   onFinish: (state: QuizState) => void
 }
 
-export default function QuizView({ questions, topic, initialState, onFinish }: QuizViewProps) {
+export default function QuizView({ questions, topic, mode, initialState, onFinish }: QuizViewProps) {
   const [state, setState] = useState<QuizState>(() => {
     if (initialState) return initialState
     return {
       questions,
       topic,
+      mode,
       currentIndex: 0,
       answers: [],
       flaggedIndices: [],

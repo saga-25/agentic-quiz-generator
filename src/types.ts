@@ -1,4 +1,6 @@
 export type Difficulty = 'easy' | 'medium' | 'hard'
+export type QuizMode = 'topic' | 'interviewer'
+
 
 export interface DifficultyDistribution {
   easy: number
@@ -34,6 +36,7 @@ export interface QuestionAnswer {
 export interface QuizSession {
   session_id: string
   topic: string
+  mode: QuizMode
   tags: string[]
   total_questions: number
   answers: QuestionAnswer[]
@@ -45,6 +48,7 @@ export interface QuizSession {
 export interface QuizState {
   questions: MCQQuestion[]
   topic: string
+  mode: QuizMode
   currentIndex: number
   answers: QuestionAnswer[]
   flaggedIndices: number[]

@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react'
 import { Settings, BookOpen } from 'lucide-react'
-import { DifficultyDistribution } from '../types'
+import { DifficultyDistribution, QuizMode } from '../types'
 
 interface TopicInputProps {
-  onGenerate: (topic: string, count: number, distribution: DifficultyDistribution) => void
+  onGenerate: (topic: string, count: number, distribution: DifficultyDistribution, mode: QuizMode) => void
   isLoading: boolean
 }
 
@@ -33,6 +33,7 @@ const diffConfig: Record<keyof DifficultyDistribution, { label: string; color: s
 
 export default function TopicInput({ onGenerate, isLoading }: TopicInputProps) {
   const [topic, setTopic] = useState('')
+  const [mode, setMode] = useState<QuizMode>('topic')
   const [questionCount, setQuestionCount] = useState(DEFAULT_COUNT)
   const [distribution, setDistribution] = useState<DifficultyDistribution>(() => getDefaultDistribution(DEFAULT_COUNT))
   const [showSettings, setShowSettings] = useState(false)
@@ -78,7 +79,7 @@ export default function TopicInput({ onGenerate, isLoading }: TopicInputProps) {
     localStorage.setItem('mcq_api_model', apiModel)
     localStorage.setItem('mcq_ollama_url', ollamaUrl)
 
-    onGenerate(topic.trim(), questionCount, distribution)
+    onGenerate(topic.trim(), questionCount, distribution, mode)
   }
 
   const currentProvider = LLM_PROVIDERS.find(p => p.id === provider)!
@@ -94,20 +95,52 @@ export default function TopicInput({ onGenerate, isLoading }: TopicInputProps) {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Mode Selector */}
+        <div className="flex p-1 bg-gray-900 border border-gray-700 rounded-xl mb-4">
+          <button
+            type="button"
+            onClick={() => setMode('topic')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${
+              mode === 'topic' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            By Topic
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('interviewer')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${
+              mode === 'interviewer' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Interviewer Mode
+          </button>
+        </div>
+
         {/* Topic input */}
         <div className="relative">
-          <input
-            type="text"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="Enter a topic (e.g. JavaScript closures, World War II, Photosynthesis)"
-            className="w-full px-5 py-4 bg-gray-900 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-lg"
-            disabled={isLoading}
-          />
+          {mode === 'topic' ? (
+            <input
+              type="text"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="Enter a topic (e.g. JavaScript closures, World War II)"
+              className="w-full px-5 py-4 bg-gray-900 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-lg"
+              disabled={isLoading}
+            />
+          ) : (
+            <textarea
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="Paste 4-5 lines of your project details or bullet points..."
+              className="w-full px-5 py-4 bg-gray-900 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-lg min-h-[140px] resize-none"
+              disabled={isLoading}
+            />
+          )}
           <button
             type="button"
             onClick={() => setShowSettings(!showSettings)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white transition-colors"
+            className="absolute right-3 bottom-4 p-2 text-gray-400 hover:text-white transition-colors"
           >
             <Settings className="w-5 h-5" />
           </button>

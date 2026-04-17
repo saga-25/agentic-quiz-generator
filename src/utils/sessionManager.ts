@@ -33,6 +33,7 @@ export function finalizeSession(state: QuizState): QuizSession {
   const session: QuizSession = {
     session_id: `session-${Date.now()}`,
     topic: state.topic,
+    mode: state.mode,
     tags: extractAllTags(state.questions),
     total_questions: state.questions.length,
     answers: allAnswers,
