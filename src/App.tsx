@@ -3,7 +3,7 @@ import TopicInput from './components/TopicInput'
 import QuizView from './components/QuizView'
 import ResultsView from './components/ResultsView'
 import { generateMCQs } from './components/McqGenerator'
-import { MCQQuestion, QuizState, QuizSession, DifficultyDistribution } from './types'
+import { MCQQuestion, QuizState, QuizSession, DifficultyDistribution, QuizMode } from './types'
 import { loadQuizState, clearQuizState, finalizeSession } from './utils/sessionManager'
 
 type AppView = 'quiz' | 'results' | 'home'

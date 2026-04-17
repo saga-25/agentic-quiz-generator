@@ -39,11 +39,13 @@ export interface QuizSession {
   mode: QuizMode
   tags: string[]
   total_questions: number
+  all_questions: MCQQuestion[] // Store all generated questions here
   answers: QuestionAnswer[]
   started_at: string
   completed_at: string | null
   total_time_seconds: number
 }
+
 
 export interface QuizState {
   questions: MCQQuestion[]

@@ -36,11 +36,13 @@ export function finalizeSession(state: QuizState): QuizSession {
     mode: state.mode,
     tags: extractAllTags(state.questions),
     total_questions: state.questions.length,
+    all_questions: state.questions, // Store all questions as requested
     answers: allAnswers,
     started_at: state.startedAt,
     completed_at: new Date().toISOString(),
     total_time_seconds: totalTime
   }
+
 
   saveSession(session)
   clearQuizState()

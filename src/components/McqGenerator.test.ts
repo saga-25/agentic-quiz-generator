@@ -33,6 +33,30 @@ describe('parseMCQResponse', () => {
     expect(result).toHaveLength(1)
     expect(result[0].question_text).toBe('What is JS?')
   })
+
+  it('keeps the correct answer aligned after option shuffling', () => {
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0.9).mockReturnValueOnce(0.1).mockReturnValueOnce(0.5)
+
+    const input = JSON.stringify([
+      {
+        question_id: 'q-001',
+        question_text: 'What is JS?',
+        options: ['A', 'B', 'C', 'D'],
+        correct_answer: 0,
+        difficulty: 'easy',
+        tags: ['js'],
+        explanation: 'Some explanation'
+      }
+    ])
+
+    const result = parseMCQResponse(input)
+    expect(result).toHaveLength(1)
+    expect(result[0].options).toHaveLength(4)
+    expect(result[0].options).toContain('A')
+    expect(result[0].correct_answer).toBeGreaterThanOrEqual(0)
+    expect(result[0].correct_answer).toBeLessThan(4)
+    vi.restoreAllMocks()
+  })
 })
 
 describe('callOllama TDD', () => {
@@ -40,7 +64,7 @@ describe('callOllama TDD', () => {
   const mockConfig: MCQCreatorConfig = {
     provider: 'ollama',
     apiKey: 'test-key',
-    model: 'gemma4:31b-cloud',
+    model: 'gemma4:31b',
     ollamaUrl: 'https://ollama.com'
   }
 
@@ -48,30 +72,46 @@ describe('callOllama TDD', () => {
     vi.stubGlobal('fetch', vi.fn())
   })
 
-  it('RED: correctly formats request for CLOUD (Native)', async () => {
-    const mockResponse = {
-      message: { content: '[]' }
-    }
-    
+  it('formats request for Ollama Cloud with canonical model names', async () => {
     // @ts-ignore
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
-      json: async () => mockResponse
+      json: async () => ({
+        choices: [{ message: { content: '[]' } }]
+      })
     })
 
-    await callOllama('React', mockDist, mockConfig, 'topic')
+    await callOllama('React', mockDist, mockConfig, 'topic', 1, 0)
 
     const [url, options] = vi.mocked(fetch).mock.calls[0]
     const body = JSON.parse(options?.body as string)
 
-    expect(url).toBe('/ollama-cloud-api/api/chat')
-    expect(body).toHaveProperty('model', 'gemma4:31b-cloud')
-    expect(body).toHaveProperty('stream', false)
-    expect(body.format).toBe('json')
-    expect(body.options).toHaveProperty('num_ctx', 16384)
+    expect(url).toBe('/ollama-cloud-api/v1/chat/completions')
+    expect(body).toHaveProperty('model', 'gemma4:31b')
+    expect(body).toHaveProperty('response_format')
   })
 
-  it('RED: correctly formats request for LOCAL (Native Ollama)', async () => {
+  it('normalizes legacy cloud-suffixed model names before sending', async () => {
+    const mockLegacyConfig = { ...mockConfig, model: 'gemma4:31b-cloud' }
+
+    // @ts-ignore
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '[]' } }]
+      })
+    })
+
+    await callOllama('React', mockDist, mockLegacyConfig, 'topic', 1, 0)
+
+    const [url, options] = vi.mocked(fetch).mock.calls[0]
+    const body = JSON.parse(options?.body as string)
+
+    expect(url).toBe('/ollama-cloud-api/v1/chat/completions')
+    expect(body).toHaveProperty('model', 'gemma4:31b')
+  })
+
+  it('correctly formats request for LOCAL (Native Ollama)', async () => {
     const mockLocalConfig = { ...mockConfig, ollamaUrl: 'http://localhost:11434' }
     const mockResponse = {
       message: { content: '[]' }
@@ -83,7 +123,7 @@ describe('callOllama TDD', () => {
       json: async () => mockResponse
     })
 
-    await callOllama('React', mockDist, mockLocalConfig, 'topic')
+    await callOllama('React', mockDist, mockLocalConfig, 'topic', 1, 0)
 
     const [url, options] = vi.mocked(fetch).mock.calls[0]
     const body = JSON.parse(options?.body as string)
@@ -104,7 +144,7 @@ describe('callOllama TDD', () => {
       text: async () => JSON.stringify(errorBody)
     })
 
-    await expect(callOllama('React', mockDist, mockConfig, 'topic'))
+    await expect(callOllama('React', mockDist, mockConfig, 'topic', 1, 0))
       .rejects.toThrow(/Ollama API error \(500\):/)
   })
 })

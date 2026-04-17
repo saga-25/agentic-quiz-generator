@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Check, X, ChevronLeft, ChevronRight, Flag, Clock, Bookmark } from 'lucide-react'
-import { MCQQuestion, QuizState } from '../types'
+import { MCQQuestion, QuizState, QuizMode } from '../types'
 import { recordAnswer, toggleFlag, saveQuizState } from '../utils/sessionManager'
 
 interface QuizViewProps {

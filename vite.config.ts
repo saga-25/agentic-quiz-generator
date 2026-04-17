@@ -10,7 +10,9 @@ export default defineConfig({
       '/ollama-cloud-api': {
         target: 'https://ollama.com',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/ollama-cloud-api/, '')
+        rewrite: (path) => path.replace(/^\/ollama-cloud-api/, ''),
+        timeout: 600000,
+        proxyTimeout: 600000
       }
     }
   }

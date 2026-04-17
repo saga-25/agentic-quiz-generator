@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Settings, BookOpen } from 'lucide-react'
 import { DifficultyDistribution, QuizMode } from '../types'
+import { fetchOllamaModels } from './McqGenerator'
 
 interface TopicInputProps {
   onGenerate: (topic: string, count: number, distribution: DifficultyDistribution, mode: QuizMode) => void
@@ -50,6 +51,9 @@ export default function TopicInput({ onGenerate, isLoading }: TopicInputProps) {
     return stored || 'https://ollama.com'
   }
   const [ollamaUrl, setOllamaUrl] = useState(getStoredUrl)
+  const [ollamaModels, setOllamaModels] = useState<string[]>([])
+  const [modelLoading, setModelLoading] = useState(false)
+  const [modelError, setModelError] = useState<string | null>(null)
 
   const distTotal = useMemo(() => distribution.easy + distribution.medium + distribution.hard, [distribution])
   const distMatchesCount = distTotal === questionCount
@@ -81,6 +85,37 @@ export default function TopicInput({ onGenerate, isLoading }: TopicInputProps) {
 
     onGenerate(topic.trim(), questionCount, distribution, mode)
   }
+
+  useEffect(() => {
+    let cancelled = false
+    const loadModels = async () => {
+      if (provider !== 'ollama' || !apiKey.trim()) {
+        setOllamaModels([])
+        setModelError(null)
+        return
+      }
+      setModelLoading(true)
+      setModelError(null)
+      try {
+        const models = await fetchOllamaModels(apiKey.trim(), ollamaUrl)
+        if (cancelled) return
+        setOllamaModels(models)
+        if (models.length > 0 && !models.includes(apiModel)) {
+          setApiModel(models[0])
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setOllamaModels([])
+          setModelError(err instanceof Error ? err.message : 'Failed to fetch Ollama models')
+        }
+      } finally {
+        if (!cancelled) setModelLoading(false)
+      }
+    }
+
+    void loadModels()
+    return () => { cancelled = true }
+  }, [apiKey, ollamaUrl, provider])
 
   const currentProvider = LLM_PROVIDERS.find(p => p.id === provider)!
 
@@ -163,13 +198,33 @@ export default function TopicInput({ onGenerate, isLoading }: TopicInputProps) {
               </div>
               <div>
                 <label className="block text-sm text-gray-400 mb-1">Model</label>
-                <input
-                  type="text"
-                  value={apiModel}
-                  onChange={(e) => setApiModel(e.target.value)}
-                  placeholder={currentProvider.modelPlaceholder}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+                {provider === 'ollama' && ollamaModels.length > 0 ? (
+                  <select
+                    value={apiModel}
+                    onChange={(e) => setApiModel(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {ollamaModels.map(model => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={apiModel}
+                    onChange={(e) => setApiModel(e.target.value)}
+                    placeholder={currentProvider.modelPlaceholder}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                )}
+                {provider === 'ollama' && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    {modelLoading ? 'Loading Ollama models...' : 'Tip: this list comes from /v1/models.'}
+                  </p>
+                )}
+                {modelError && provider === 'ollama' && (
+                  <p className="mt-1 text-xs text-red-400">{modelError}</p>
+                )}
               </div>
             </div>
             <div>

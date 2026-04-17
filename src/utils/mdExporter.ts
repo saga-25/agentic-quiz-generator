@@ -112,6 +112,16 @@ ${buildFlaggedQuestions(session.answers)}
 
 ${buildDetailedReview(session.answers)}
 
+### 📚 Full Question Set (for reference)
+
+${session.all_questions.map((q, i) => `**Q${i+1}: ${q.question_text}**
+- A) ${q.options[0]}
+- B) ${q.options[1]}
+- C) ${q.options[2]}
+- D) ${q.options[3]}
+- **Correct Answer**: ${q.options[q.correct_answer]}
+- **Explanation**: ${q.explanation}`).join('\n\n')}
+
 ---
 `
 }
